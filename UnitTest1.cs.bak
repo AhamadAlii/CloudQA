@@ -1,0 +1,199 @@
+﻿using System;
+using NUnit.Framework;
+using OpenQA.Selenium;
+using OpenQA.Selenium.Chrome;
+using OpenQA.Selenium.Support.UI;
+using SeleniumExtras.WaitHelpers;
+
+namespace CloudQATests
+{
+    public class AutomationPracticePage
+    {
+        private readonly IWebDriver _driver;
+        private readonly WebDriverWait _wait;
+        private readonly string _url = "https://app.cloudqa.io/home/AutomationPracticeForm";
+
+        public AutomationPracticePage(IWebDriver driver, TimeSpan timeout)
+        {
+            _driver = driver;
+            _wait = new WebDriverWait(_driver, timeout);
+        }
+
+        public void Open() => _driver.Navigate().GoToUrl(_url);
+
+        private IWebElement ControlFollowingLabel(string labelText)
+        {
+            var xpath = $"//label[normalize-space() = '{labelText}']" +
+                        "/following::input[1] | //label[normalize-space() = '{labelText}']/following::select[1] | //label[normalize-space() = '{labelText}']/following::textarea[1]";
+            return _wait.Until(ExpectedConditions.ElementIsVisible(By.XPath(xpath)));
+        }
+
+        private IWebElement ControlFollowingTextNode(string visibleText)
+        {
+            var xpath = $"//text()[normalize-space()='{visibleText}']/parent::*" +
+                        "/following::input[1] | //text()[normalize-space()='{visibleText}']/parent::*/following::select[1] | //text()[normalize-space()='{visibleText}']/parent::*/following::textarea[1]";
+            return _wait.Until(ExpectedConditions.ElementIsVisible(By.XPath(xpath)));
+        }
+
+        public void SetFirstName(string firstName)
+        {
+            IWebElement input;
+            try { input = ControlFollowingLabel("First Name"); }
+            catch (WebDriverTimeoutException) { input = ControlFollowingTextNode("First Name"); }
+
+            input.Clear();
+            input.SendKeys(firstName);
+        }
+
+        public void SelectCountry(string countryVisibleText)
+        {
+            IWebElement selectElem;
+            try { selectElem = ControlFollowingLabel("Country"); }
+            catch (WebDriverTimeoutException) { selectElem = ControlFollowingTextNode("Country"); }
+
+            if (selectElem.TagName.Equals("select", StringComparison.OrdinalIgnoreCase))
+            {
+                var select = new SelectElement(selectElem);
+                select.SelectByText(countryVisibleText);
+            }
+            else
+            {
+                selectElem.Click();
+                var optXpath = $"//li[normalize-space()='{countryVisibleText}' or normalize-space(text())='{countryVisibleText}'] | //option[normalize-space()='{countryVisibleText}']";
+                var option = _wait.Until(ExpectedConditions.ElementToBeClickable(By.XPath(optXpath)));
+                option.Click();
+            }
+        }
+
+        public void SetHobby(string hobbyLabel, bool check = true)
+        {
+            var labelXpath = $"//label[normalize-space() = '{hobbyLabel}']";
+            try
+            {
+                var label = _wait.Until(ExpectedConditions.ElementIsVisible(By.XPath(labelXpath)));
+                var forAttr = label.GetAttribute("for");
+                if (!string.IsNullOrEmpty(forAttr))
+                {
+                    var input = _driver.FindElement(By.Id(forAttr));
+                    if (input.Selected != check) label.Click();
+                    return;
+                }
+                var inputWithin = label.FindElements(By.XPath(".//input[@type='checkbox' or @type='radio']"));
+                if (inputWithin.Count > 0)
+                {
+                    var inp = inputWithin[0];
+                    if (inp.Selected != check) label.Click();
+                    return;
+                }
+                var nearbyInput = label.FindElement(By.XPath("following::input[@type='checkbox' or @type='radio'][1]"));
+                if (nearbyInput.Selected != check) nearbyInput.Click();
+                return;
+            }
+            catch (WebDriverTimeoutException)
+            {
+                var xpath = $"//input[@type='checkbox' and (following-sibling::text()[normalize-space()='{hobbyLabel}'] or following-sibling::*[normalize-space()='{hobbyLabel}'])]";
+                var input = _wait.Until(ExpectedConditions.ElementToBeClickable(By.XPath(xpath)));
+                if (input.Selected != check) input.Click();
+            }
+        }
+
+        public string GetFirstNameValue()
+        {
+            try { return ControlFollowingLabel("First Name").GetAttribute("value") ?? string.Empty; }
+            catch { return ControlFollowingTextNode("First Name").GetAttribute("value") ?? string.Empty; }
+        }
+
+        public string GetSelectedCountry()
+        {
+            IWebElement selectElem;
+            try { selectElem = ControlFollowingLabel("Country"); }
+            catch { selectElem = ControlFollowingTextNode("Country"); }
+
+            if (selectElem.TagName.Equals("select", StringComparison.OrdinalIgnoreCase))
+            {
+                var s = new SelectElement(selectElem);
+                return s.SelectedOption?.Text.Trim() ?? string.Empty;
+            }
+            else
+            {
+                return selectElem.Text.Trim();
+            }
+        }
+
+        public bool IsHobbyChecked(string hobbyLabel)
+        {
+            try
+            {
+                var label = _driver.FindElement(By.XPath($"//label[normalize-space() = '{hobbyLabel}']"));
+                var forAttr = label.GetAttribute("for");
+                if (!string.IsNullOrEmpty(forAttr))
+                {
+                    var input = _driver.FindElement(By.Id(forAttr));
+                    return input.Selected;
+                }
+                var inputWithin = label.FindElements(By.XPath(".//input[@type='checkbox' or @type='radio']"));
+                if (inputWithin.Count > 0) return inputWithin[0].Selected;
+                var nearbyInput = label.FindElement(By.XPath("following::input[@type='checkbox' or @type='radio'][1]"));
+                return nearbyInput.Selected;
+            }
+            catch
+            {
+                var xpath = $"//input[@type='checkbox' and (following-sibling::text()[normalize-space()='{hobbyLabel}'] or following-sibling::*[normalize-space()='{hobbyLabel}'])]";
+                var input = _driver.FindElement(By.XPath(xpath));
+                return input.Selected;
+            }
+        }
+    }
+
+    [TestFixture]
+    public class CloudQAFieldsTests
+    {
+        private IWebDriver? _driver;
+        private AutomationPracticePage? _page;
+
+        [SetUp]
+        public void SetUp()
+        {
+            var options = new ChromeOptions();
+            options.AddArgument("--start-maximized");
+            _driver = new ChromeDriver(options);
+            _page = new AutomationPracticePage(_driver, TimeSpan.FromSeconds(10));
+            _page.Open();
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            try
+            {
+                _driver?.Quit();
+                _driver?.Dispose();
+            }
+            catch { }
+            finally
+            {
+                _driver = null;
+                _page = null;
+            }
+        }
+
+        [Test]
+        public void Test_FirstName_Country_Hobby_AreInteractable()
+        {
+            var expectedFirst = "ArunTest";
+            _page!.SetFirstName(expectedFirst);
+            Assert.AreEqual(expectedFirst, _page.GetFirstNameValue(), "First Name did not set correctly.");
+
+            var expectedCountry = "India";
+            _page.SelectCountry(expectedCountry);
+            Assert.IsTrue(_page.GetSelectedCountry().Contains(expectedCountry), "Country selection failed.");
+
+            var hobby = "Reading";
+            _page.SetHobby(hobby, true);
+            Assert.IsTrue(_page.IsHobbyChecked(hobby), $"Hobby '{hobby}' should be checked but is not.");
+
+            _page.SetHobby(hobby, false);
+            Assert.IsFalse(_page.IsHobbyChecked(hobby), $"Hobby '{hobby}' should be unchecked but is still checked.");
+        }
+    }
+}
